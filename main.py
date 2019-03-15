@@ -9,7 +9,7 @@ from utils import accuracy
 import random
 import provider
 # import psutil
-import pynvml
+
 
 import torch
 import torch.nn as nn
@@ -24,12 +24,7 @@ from models_tf import GAT
 # pid=os.getpid()
 # p=psutil.Process(pid)
 
-# #initializing pynvml
-# pynvml.nvmlInit()
-# #get the handle of first GPU
-# handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-# meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-# print('before, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
+
 
 parser = argparse.ArgumentParser(description='Point Cloud Attention Neural Network')
 
@@ -44,6 +39,8 @@ parser.add_argument('--num_point', type=int, default=1024, help='Point Number [2
 parser.add_argument('--batch_size', type=int, default=32, help='Batch Size during training [default: 32]')
 parser.add_argument('--lr', type=float, default=0.005, help='Initial learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
+# parser.add_argument('--hidden', type=int, default=[8], help='Number of hidden units.')
+# parser.add_argument('--nb_heads', type=int, default=[8], help='Number of head attentions.')
 parser.add_argument('--hidden', type=int, default=8, help='Number of hidden units.')
 parser.add_argument('--nb_heads', type=int, default=8, help='Number of head attentions.')
 parser.add_argument('--dropout', type=float, default=0.6, help='Dropout rate (1 - keep probability).')
@@ -70,7 +67,7 @@ TEST_FILES=provider.getDataFiles(\
      os.path.join(BASE_DIR, 'data/modelnet40_ply_hdf5_2048/test_files.txt'))
 
 model = GAT(nfeat=3, 
-               nhid=args.hidden, 
+               nhids=args.hidden, 
                nclass=NUM_CLASSES, 
                dropout=args.dropout, 
                nheads=args.nb_heads, 
@@ -79,8 +76,19 @@ optimizer = optim.Adam(model.parameters(),
                     lr=args.lr, 
                     weight_decay=args.weight_decay)
 
+# if args.cuda:
+#      import pynvml
+
 if args.cuda:
-    model.cuda()
+     model.cuda()
+
+     # #initializing pynvml
+     # pynvml.nvmlInit()
+     # #get the handle of first GPU
+     # handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+     # meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+     # print('before, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
+     # print('cuda')
 
 # print('initlizing parameters and model: ',  p.memory_info().rss/(1024*1024), ' MB')
 
@@ -105,17 +113,18 @@ def train_one_epoch(epoch):
           # print('---load  current_data and current_label',  p.memory_info().rss/(1024*1024), ' MB')
 
           num_batches=current_data.shape[0]//BATCH_SIZE
-          print('num_batches: ', num_batches)
+          print('---num_batches: ', num_batches)
 
           total_correct=0
           total_seen=0
           loss_sum=0
 
           for batch_idx in range(num_batches):
-               print('------batch_idx: ', batch_idx)
+               # print('------batch_idx: ', batch_idx)
                # print('------at the beginning of loop ',  p.memory_info().rss/(1024*1024), ' MB')
-               # meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-               # print('batch_idx, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
+               # if args.cuda:
+               #      meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+               #      print('batch_idx, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
 
                optimizer.zero_grad()
 
@@ -146,12 +155,15 @@ def train_one_epoch(epoch):
                # print('------get adj and features ',  p.memory_info().rss/(1024*1024), ' MB')
                if args.cuda:
                     features = features.cuda()
+                    label = label.cuda()
                # output=model(features,adj)
                output=model(features)
+               # print('output.device: ', output.device)
+               # print('label.device: ', label.device)
 
-               # meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-               # print('model, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
-               # print('------use model',  p.memory_info().rss/(1024*1024), ' MB')
+               # if args.cuda:
+               #      meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+               #      print('model, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
 
                # print('type of output: ', type(output))
                # print('------shape of output: ', output.shape)
@@ -191,6 +203,9 @@ def train_one_epoch(epoch):
                # if batch_idx%BATCH_SIZE==0:
                #      print('batch_idx: ',batch_idx)
                #      optimizer.step()
+               # if args.cuda:
+               #      meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+               #      print('optimizer.step, memory of gpu used is ', meminfo.used/(1024*1024*8), ' MB')
 
           del current_data
           del current_label
@@ -233,6 +248,8 @@ def eval_one_epoch():
 
                if args.cuda:
                     features = features.cuda()
+                    label = label.cuda()
+
                # output=model(features,adj)
                output=model(features)
                
@@ -263,17 +280,18 @@ t_total=time.time()
 
 for epoch in range(args.epochs):
      train_one_epoch(epoch)
-     # eval_one_epoch()
+     eval_one_epoch()
 
-     torch.save(model.state_dict(),'{}.pkl'.format(epoch))
+     if epoch%10==0:
+      torch.save(model.state_dict(),'{}.pkl'.format(epoch))
 
 
 print('Optimization Finished!')
 print('Total time elapsed:', time.time()-t_total, 's')
 
 #restore best model
-print('loading ()th epoch'.format(best_epoch))
-model.load_state_dict(torch.load('{}.pkl'.format(best_epoch)))
+# print('loading ()th epoch'.format(best_epoch))
+# model.load_state_dict(torch.load('{}.pkl'.format(best_epoch)))
 
 # Testing
 # eval_one_epoch()
